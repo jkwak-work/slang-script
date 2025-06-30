@@ -1,0 +1,32 @@
+# Cursor Rules for Shader-Slang Project
+# This file ensures all AI assistance follows the project's CONTRIBUTING.md guidelines
+
+## General behavior
+- ALWAYS read and follow the CONTRIBUTING.md file in this repository. All suggestions, code changes, and recommendations must comply with the contribution guidelines specified in that document.
+- Reference SLANG_PROJECT_MEMORY.md. If not present, copy from ../SLANG_PROJECT_MEMORY.md
+- Always update SLANG_PROJECT_MEMORY.md as needed
+
+## Build System Requirements
+- Use CMake with the project's presets
+- For CMake configuration, use `cmake --preset default --fresh`
+- For building, use `cmake --build --preset release` or `cmake --build --preset debug`
+- For more detailed build information, refer to docs/building.md
+
+## Testing Requirements
+- Always run `slang-test` from repository root directory
+- Reference the slang-test document, tools/slang-test/README.md
+- Reference the "Test Slang" section in .github/workflows/ci.yml
+- Any changes made for the current issue should not cause a regression with slang-test.
+- When there are regressions with slang-test, it is most likely the case where the current fix is still not an ideal solution yet.
+
+## Coding convention
+- When making code changes, follow the coding convention, docs/design/coding-conventions.md
+
+## Debugging methods
+- Because LLM is not able to use a debugger, it will be best to add printf logs.
+- Keep the printf logs as much as possible in order to be already ready for additional requests from the user
+
+## Slang specific syntax and features
+- Reference the slang specific syntax and features described in the user guide documents under docs/user-guide
+
+

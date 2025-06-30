@@ -8,7 +8,6 @@ fi
 performRebase=true
 unset branchName
 unset branchType
-unset build
 while [ "x$1" != "x" ]
 do
 	case "$1" in
@@ -38,9 +37,6 @@ do
 			;;
 		--skip-rebase)
 			performRebase=false
-			;;
-		--build-slang)
-			build=$WSL_MNT/build_slang.sh
 			;;
 		*)
 			if [ "$branchName" != "" ]
@@ -94,12 +90,6 @@ then
 	exit 2
 fi
 
-echo "[$(date)] Pull for branch: $currentBranch ..."
-if ! git pull -q
-then
-	echo "git pull failed"
-	exit 2
-fi
 
 if $performRebase
 then
@@ -111,12 +101,6 @@ then
 		exit 2
 	fi
 
-	echo "[$(date)] Pushing the rebased result to origin/$currentBranch ..."
-	if ! git push -q origin $currentBranch
-	then
-		echo "Pushing failed."
-		exit 2
-	fi
 else
 	echo "[$(date)] Skipping rebase for $currentBranch"
 fi
@@ -141,7 +125,8 @@ then
 	echo "Failed to create a new worktree: $branchName"
 	exit 2
 fi
-relMaster="$(realpath --relative-to="../$branchName" "$(pwd)")"
+# Simple relative path calculation - works on all platforms
+relMaster="$(basename "$(pwd)")"
 
 echo "[$(date)] Creating and switching to a new branch: $branchType/$branchName ..."
 cd "../$branchName" || exit 2
@@ -159,8 +144,8 @@ then
 	for m in $(grep 'path = ' .gitmodules | sed 's|.*path = ||' | tr -d '\r')
 	do
 		echo "[$(date)] Initializing: $m ..."
-		moduleLocal="$(realpath "$relMaster/$m")"
-		git submodule -q update --init --reference "$(wslpath -w "$moduleLocal")" "$m" &
+		moduleLocal="../$relMaster/$m"
+		git submodule -q update --init --reference "$moduleLocal" "$m" &
 	done
 	wait
 
@@ -176,6 +161,4 @@ else
 fi
 
 echo "[$(date)] done ..."
-
-[ "x$build" != "x" ] && $build
 
