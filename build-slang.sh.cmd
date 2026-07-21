@@ -37,4 +37,4 @@ del /q "%vcvars_output%" >nul 2>&1
 cmake.exe --preset default --log-level=ERROR
 if errorlevel 1 exit /b %errorlevel%
 
-cmake.exe --build build --config %build_config%
+cmake.exe --build build --config %build_config% -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DSLANG_IGNORE_ABORT_MSG=ON
