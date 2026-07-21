@@ -1,5 +1,6 @@
 #!/bin/bash
 
+start_seconds=$SECONDS
 verbose=false
 build_config=
 release_tag=
@@ -8,6 +9,23 @@ log()
 {
 	printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
+
+log_elapsed_time()
+{
+	local status=$?
+	local elapsed_seconds=$((SECONDS - start_seconds))
+	local elapsed_time
+
+	trap - EXIT
+	printf -v elapsed_time '%02d:%02d:%02d' \
+		$((elapsed_seconds / 3600)) \
+		$(((elapsed_seconds % 3600) / 60)) \
+		$((elapsed_seconds % 60))
+	log "Elapsed time: $elapsed_time"
+	exit "$status"
+}
+
+trap log_elapsed_time EXIT
 
 usage()
 {
