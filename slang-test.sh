@@ -135,9 +135,11 @@ if [ "$validation" = true ]
 then
 	export SLANG_RUN_SPIRV_VALIDATION=1
 	export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+	log "SPIRV and Vulkan validation enabled."
 else
 	export SLANG_RUN_SPIRV_VALIDATION=0
 	export VK_INSTANCE_LAYERS=
+	log "SPIRV and Vulkan validation disabled."
 fi
 
 add_to_wslenv SLANG_RUN_SPIRV_VALIDATION
@@ -225,5 +227,11 @@ then
 	exit 1
 fi
 
-log "slang-test found: $slangtest"
+slangtest_options=
+for arg in "${slangtest_args[@]}"
+do
+	printf -v escaped_arg '%q' "$arg"
+	slangtest_options="${slangtest_options:+$slangtest_options }$escaped_arg"
+done
+log "$slangtest ${slangtest_options:-<none>}"
 "$slangtest" "${slangtest_args[@]}"
