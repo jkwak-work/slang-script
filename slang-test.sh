@@ -3,10 +3,29 @@
 start_seconds=$SECONDS
 verbose=false
 build_config=
+validation=true
 
 log()
 {
 	printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+add_to_wslenv()
+{
+	local entry
+	local variable="$1"
+	local wslenv_entries=()
+
+	IFS=: read -r -a wslenv_entries <<< "${WSLENV:-}"
+	for entry in "${wslenv_entries[@]}"
+	do
+		if [ "${entry%%/*}" = "$variable" ]
+		then
+			return
+		fi
+	done
+
+	WSLENV="${WSLENV:+$WSLENV:}$variable"
 }
 
 log_elapsed_time()
@@ -51,7 +70,7 @@ get_cpu_count()
 
 usage()
 {
-	log "Usage: $0 [--debug | --release] [--server-count X] [--verbose] [--] [slang-test arguments...]" >&2
+	log "Usage: $0 [--debug | --release] [--server-count X] [--validation {true | false}] [--verbose] [--] [slang-test arguments...]" >&2
 }
 
 server_count=$(get_cpu_count)
@@ -90,6 +109,16 @@ do
 			server_count="$2"
 			shift
 			;;
+		--validation)
+			if [ "$#" -lt 2 ] || { [ "$2" != true ] && [ "$2" != false ]; }
+			then
+				log "--validation requires either 'true' or 'false'." >&2
+				usage
+				exit 2
+			fi
+			validation="$2"
+			shift
+			;;
 		--)
 			shift
 			slangtest_args+=("$@")
@@ -101,6 +130,19 @@ do
 	esac
 	shift
 done
+
+if [ "$validation" = true ]
+then
+	export SLANG_RUN_SPIRV_VALIDATION=1
+	export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+else
+	export SLANG_RUN_SPIRV_VALIDATION=0
+	export VK_INSTANCE_LAYERS=
+fi
+
+add_to_wslenv SLANG_RUN_SPIRV_VALIDATION
+add_to_wslenv VK_INSTANCE_LAYERS
+export WSLENV
 
 positional_argument_count=0
 run_all=false
