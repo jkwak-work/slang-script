@@ -227,11 +227,11 @@ then
 	exit 1
 fi
 
-slangtest_options=
+slangtest_options=(-v failure)
 for arg in "${slangtest_args[@]}"
 do
-	printf -v escaped_arg '%q' "$arg"
-	slangtest_options="${slangtest_options:+$slangtest_options }$escaped_arg"
+	slangtest_options+=("$arg")
 done
-log "$slangtest ${slangtest_options:-<none>}"
-"$slangtest" "${slangtest_args[@]}"
+printf -v slangtest_command '%q ' "$slangtest" "${slangtest_options[@]}"
+log "${slangtest_command% }"
+"$slangtest" "${slangtest_options[@]}"
