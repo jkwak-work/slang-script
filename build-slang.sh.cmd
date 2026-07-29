@@ -2,10 +2,10 @@
 set "build_config=%~1"
 if not defined build_config set "build_config=Debug"
 set "sccache_dir=%~2"
+set "cuda_path=%~3"
 
 if not defined sccache_dir (
-    echo Missing sccache cache directory. 1>&2
-    exit /b 2
+    set "sccache_dir=%LOCALAPPDATA%\sccache"
 )
 
 if not exist "%sccache_dir%" mkdir "%sccache_dir%" >nul 2>&1
@@ -34,7 +34,29 @@ if not "%vcvars_status%"=="0" (
 )
 del /q "%vcvars_output%" >nul 2>&1
 
+if defined cuda_path call :configure_cuda
+if defined cuda_path if errorlevel 1 exit /b %errorlevel%
+
 cmake.exe --preset default --log-level=ERROR -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DSLANG_IGNORE_ABORT_MSG=ON
 if errorlevel 1 exit /b %errorlevel%
 
 cmake.exe --build build --config %build_config%
+exit /b %errorlevel%
+
+:configure_cuda
+set "CUDA_PATH=%cuda_path%"
+set "CUDAToolkit_ROOT=%cuda_path%"
+if not exist "%CUDA_PATH%" (
+    echo Selected CUDA installation was not found: %CUDA_PATH% 1>&2
+    exit /b 1
+)
+if exist "%CUDA_PATH%\bin\x64" (
+    set "PATH=%CUDA_PATH%\bin\x64;%CUDA_PATH%\bin;%PATH%"
+    exit /b 0
+)
+if exist "%CUDA_PATH%\libnvvp" (
+    set "PATH=%CUDA_PATH%\bin;%CUDA_PATH%\libnvvp;%PATH%"
+) else (
+    set "PATH=%CUDA_PATH%\bin;%PATH%"
+)
+exit /b 0
