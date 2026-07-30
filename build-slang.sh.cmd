@@ -50,13 +50,4 @@ if not exist "%CUDA_PATH%" (
     echo Selected CUDA installation was not found: %CUDA_PATH% 1>&2
     exit /b 1
 )
-if exist "%CUDA_PATH%\bin\x64" (
-    set "PATH=%CUDA_PATH%\bin\x64;%CUDA_PATH%\bin;%PATH%"
-    exit /b 0
-)
-if exist "%CUDA_PATH%\libnvvp" (
-    set "PATH=%CUDA_PATH%\bin;%CUDA_PATH%\libnvvp;%PATH%"
-) else (
-    set "PATH=%CUDA_PATH%\bin;%PATH%"
-)
 exit /b 0

@@ -7,7 +7,7 @@ release_tag=
 
 log()
 {
-	printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+	printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2
 }
 
 log_elapsed_time()
@@ -272,3 +272,9 @@ fi
 log "slangc found: $slangc"
 
 "$slangc" "${slangc_args[@]}"
+status=$?
+if [ "$status" -ne 0 ]
+then
+	log "slangc exit code: $status"
+fi
+exit "$status"

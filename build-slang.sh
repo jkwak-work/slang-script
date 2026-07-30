@@ -244,7 +244,6 @@ if [ "$platform" = linux ]; then
     if [ -n "$selected_cuda_path" ]; then
         export CUDA_PATH="$selected_cuda_path"
         export CUDAToolkit_ROOT="$selected_cuda_path"
-        export PATH="$selected_cuda_path/bin:$PATH"
         if [ -d "$selected_cuda_path/lib64" ]; then
             export LD_LIBRARY_PATH="$selected_cuda_path/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         fi
