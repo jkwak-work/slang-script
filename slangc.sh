@@ -4,10 +4,43 @@ start_seconds=$SECONDS
 verbose=false
 build_config=
 release_tag=
+validation=true
 
 log()
 {
 	printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2
+}
+
+is_wsl()
+{
+	[ -r /proc/sys/kernel/osrelease ] && grep -qi microsoft /proc/sys/kernel/osrelease
+}
+
+add_to_wslenv()
+{
+	local entry
+	local variable="$1"
+	local variable_name="${variable%%/*}"
+	local wslenv_entries=()
+	local index
+
+	IFS=: read -r -a wslenv_entries <<< "${WSLENV:-}"
+	for index in "${!wslenv_entries[@]}"
+	do
+		entry=${wslenv_entries[index]}
+		if [ "${entry%%/*}" = "$variable_name" ]
+		then
+			if [[ "$variable" == */* ]] && [ "$entry" != "$variable" ]
+			then
+				wslenv_entries[index]="$variable"
+				WSLENV=$(IFS=:; echo "${wslenv_entries[*]}")
+			fi
+			return
+		fi
+	done
+
+	WSLENV=${WSLENV%:}
+	WSLENV="${WSLENV:+$WSLENV:}$variable"
 }
 
 log_elapsed_time()
@@ -29,7 +62,7 @@ trap log_elapsed_time EXIT
 
 usage()
 {
-	log "Usage: $0 [--debug | --release | --tag TAG] [--verbose] [--] [slangc arguments...]" >&2
+	log "Usage: $0 [--debug | --release | --tag TAG] [--validation {true | false}] [--verbose] [--] [slangc arguments...]" >&2
 }
 
 detect_release_platform()
@@ -41,7 +74,7 @@ detect_release_platform()
 	machine=$(uname -m)
 	case "$kernel:$machine" in
 		Linux:x86_64|Linux:amd64)
-			if [ -r /proc/sys/kernel/osrelease ] && grep -qi microsoft /proc/sys/kernel/osrelease
+			if is_wsl
 			then
 				release_platform=windows-x86_64
 				release_executable=slangc.exe
@@ -118,6 +151,16 @@ do
 				exit 2
 			fi
 			build_config=Release
+			;;
+		--validation)
+			if [ "$#" -lt 2 ] || { [ "$2" != true ] && [ "$2" != false ]; }
+			then
+				log "--validation requires either 'true' or 'false'." >&2
+				usage
+				exit 2
+			fi
+			validation="$2"
+			shift
 			;;
 		--verbose)
 			verbose=true
@@ -270,6 +313,22 @@ else
 	$verbose && log "Using Slang release: $release_tag"
 fi
 log "slangc found: $slangc"
+
+if [ "$validation" = true ]
+then
+	export SLANG_RUN_SPIRV_VALIDATION=1
+	$verbose && log "SPIRV validation enabled."
+else
+	export SLANG_RUN_SPIRV_VALIDATION=0
+	$verbose && log "SPIRV validation disabled."
+fi
+
+# A Windows slangc.exe launched from WSL only sees variables listed in WSLENV.
+if [[ "$slangc" == *.exe ]] && is_wsl
+then
+	add_to_wslenv SLANG_RUN_SPIRV_VALIDATION
+	export WSLENV
+fi
 
 "$slangc" "${slangc_args[@]}"
 status=$?
