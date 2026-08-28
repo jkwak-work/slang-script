@@ -54,32 +54,9 @@ log_elapsed_time()
 
 trap log_elapsed_time EXIT
 
-get_cpu_count()
-{
-	local count
-
-	if command -v nproc >/dev/null 2>&1
-	then
-		count=$(nproc)
-	elif command -v sysctl >/dev/null 2>&1
-	then
-		count=$(sysctl -n hw.logicalcpu 2>/dev/null)
-	elif [ -n "${NUMBER_OF_PROCESSORS:-}" ]
-	then
-		count="$NUMBER_OF_PROCESSORS"
-	fi
-
-	if [[ "${count:-}" =~ ^[1-9][0-9]*$ ]]
-	then
-		printf '%s\n' "$count"
-	else
-		printf '1\n'
-	fi
-}
-
 usage()
 {
-	log "Usage: $0 [--debug | --release] [--cuda VERSION] [--server-count X] [--validation {true | false}] [--verbose] [--] [slang-test arguments...]" >&2
+	log "Usage: $0 [--debug | --release] [--cuda VERSION] [--server-count X] [--skip-list FILE] [--validation {true | false}] [--verbose] [--] [slang-test arguments...]" >&2
 }
 
 detect_platform()
@@ -105,6 +82,20 @@ detect_platform()
 			exit 1
 			;;
 	esac
+}
+
+add_skip_list()
+{
+	local path=$1
+	local reason=$2
+
+	if [ ! -f "$path" ]
+	then
+		log "Warning: skip list not found, ignoring: $path" >&2
+		return
+	fi
+	log "Skip list: $path ($reason)"
+	skip_lists+=("$path")
 }
 
 add_cuda_installation()
@@ -280,8 +271,9 @@ configure_cuda_search_paths()
 	fi
 }
 
-server_count=$(get_cpu_count)
+server_count=8
 requested_cuda_version=
+requested_skip_lists=()
 slangtest_args=()
 while [ "$#" -gt 0 ]
 do
@@ -335,6 +327,21 @@ do
 				exit 2
 			fi
 			server_count="$2"
+			shift
+			;;
+		--skip-list)
+			if [ "$#" -lt 2 ] || [ -z "$2" ]
+			then
+				log "--skip-list requires a file path." >&2
+				usage
+				exit 2
+			fi
+			if [ ! -f "$2" ]
+			then
+				log "Skip list not found: $2" >&2
+				exit 2
+			fi
+			requested_skip_lists+=("$2")
 			shift
 			;;
 		--validation)
@@ -449,6 +456,7 @@ else
 fi
 
 unset slangtest
+slangtest_root=.
 for d in ./build ../build ../../build ../../../build
 do
 	for c in "${search_configs[@]}"
@@ -466,6 +474,7 @@ do
 				else
 					$verbose && log "Found: $slangtest_candidate"
 					slangtest="$slangtest_candidate"
+					slangtest_root="${d%/build}"
 				fi
 			fi
 		done
@@ -479,7 +488,28 @@ then
 	exit 1
 fi
 
+# Mirror the skip lists that .github/workflows/ci-slang-test.yml applies.
+skip_lists=()
+if [ "${#requested_skip_lists[@]}" -gt 0 ]
+then
+	for skip_list in "${requested_skip_lists[@]}"
+	do
+		add_skip_list "$skip_list" "requested"
+	done
+else
+	add_skip_list "$slangtest_root/tests/skip-list-gpu-t4.txt" "GPU"
+	case "$slangtest" in
+		*/Debug/*)
+			add_skip_list "$slangtest_root/tests/skip-list-debug.txt" "debug build"
+			;;
+	esac
+fi
+
 slangtest_options=(-v failure)
+for skip_list in "${skip_lists[@]}"
+do
+	slangtest_options+=(-skip-list "$skip_list")
+done
 for arg in "${slangtest_args[@]}"
 do
 	slangtest_options+=("$arg")
