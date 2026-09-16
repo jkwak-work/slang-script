@@ -130,7 +130,7 @@ extract_release_archive()
 	esac
 }
 
-slangc_args=()
+slangc_args=("-line-directive-mode" "none")
 while [ "$#" -gt 0 ]
 do
 	case "$1" in
