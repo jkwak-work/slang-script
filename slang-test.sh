@@ -283,6 +283,18 @@ sdk_unix_path()
 	esac
 }
 
+windows_env_value()
+{
+	local value
+
+	# WSL only sees Windows variables that are listed in WSLENV, so ask cmd.exe.
+	# Run it from a Windows drive to avoid the UNC working directory warning.
+	value=$(cd /mnt/c 2>/dev/null; cmd.exe /d /c "echo %$1%" 2>/dev/null) || return 1
+	value=${value%$'\r'}
+	[ -n "$value" ] && [ "$value" != "%$1%" ] || return 1
+	printf '%s\n' "$value"
+}
+
 vulkan_sdk_root()
 {
 	local path
@@ -300,19 +312,27 @@ vulkan_sdk_root()
 
 discover_vulkan_sdk()
 {
-	local variable entry root search_path path_source
+	local variable value source entry root search_path path_source
 	local path_entries=()
 
-	# Prefer an explicit SDK setting, then the SDK already on PATH.
+	# Prefer an explicit SDK setting, then the SDK already on PATH, then the
+	# layer registered with the Windows Vulkan loader.
 	for variable in VULKAN_SDK VK_SDK_PATH
 	do
-		[ -n "${!variable:-}" ] || continue
-		root=$(vulkan_sdk_root "${!variable}") || {
-			log "Warning: $variable does not point to a Vulkan SDK: ${!variable}" >&2
+		value=${!variable:-}
+		source=$variable
+		if [ -z "$value" ] && [ "$platform" = wsl ]
+		then
+			value=$(windows_env_value "$variable") || continue
+			source="Windows $variable"
+		fi
+		[ -n "$value" ] || continue
+		root=$(vulkan_sdk_root "$value") || {
+			log "Warning: $source does not point to a Vulkan SDK: $value" >&2
 			continue
 		}
 		vulkan_paths+=("$root")
-		vulkan_sources+=("$variable")
+		vulkan_sources+=("$source")
 	done
 
 	if [ "$platform" = linux ]
@@ -331,6 +351,20 @@ discover_vulkan_sdk()
 		vulkan_paths+=("$root")
 		vulkan_sources+=("$path_source")
 	done
+
+	[ "$platform" = linux ] && return
+	while IFS= read -r entry
+	do
+		entry=${entry%$'\r'}
+		entry=$(printf '%s\n' "$entry" |
+			sed -n 's/^ *\(.*\\VkLayer_khronos_validation\.json\) .*/\1/p')
+		[ -n "$entry" ] || continue
+		entry=$(sdk_unix_path "$entry") || continue
+		root=$(vulkan_sdk_root "$(dirname -- "$(dirname -- "$entry")")") || continue
+		vulkan_paths+=("$root")
+		vulkan_sources+=(registry)
+	done < <(MSYS2_ARG_CONV_EXCL='*' reg.exe query \
+		'HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers' 2>/dev/null)
 }
 
 select_vulkan_sdk()
@@ -349,6 +383,7 @@ select_vulkan_sdk()
 	do
 		if [ "${vulkan_sources[index]}" != PATH ] &&
 			[ "${vulkan_sources[index]}" != LD_LIBRARY_PATH ] &&
+			[ "${vulkan_sources[index]}" != registry ] &&
 			[ "${vulkan_paths[index]}" != "$selected_vulkan_path" ]
 		then
 			log "Warning: ${vulkan_sources[index]} points to ${vulkan_paths[index]}; using $selected_vulkan_path." >&2
@@ -371,7 +406,7 @@ select_vulkan_sdk()
 
 configure_vulkan_search_paths()
 {
-	local entry sdk_dir sdk_value search_path
+	local entry sdk_dir sdk_value layer_dir search_path
 	local path_entries=() kept_entries=()
 
 	[ -n "$selected_vulkan_path" ] || return
@@ -384,6 +419,7 @@ configure_vulkan_search_paths()
 		else
 			sdk_dir="$selected_vulkan_path/lib64"
 		fi
+		layer_dir="$selected_vulkan_path/share/vulkan/explicit_layer.d"
 		search_path=${LD_LIBRARY_PATH:-}
 	else
 		if [ -f "$selected_vulkan_path/Bin/$vulkan_sdk_marker" ]
@@ -392,6 +428,7 @@ configure_vulkan_search_paths()
 		else
 			sdk_dir="$selected_vulkan_path/bin"
 		fi
+		layer_dir=$sdk_dir
 		search_path=$PATH
 	fi
 	IFS=: read -r -a path_entries <<< "$search_path"
@@ -408,16 +445,31 @@ configure_vulkan_search_paths()
 		prepend_path_entries "$sdk_dir"
 	fi
 
+	# The Vulkan loader finds layers through the registry or layer paths, not
+	# PATH, so point it at the selected SDK's validation layer manifest.
+	[ -d "$layer_dir" ] || layer_dir=
+
 	case "$platform" in
 		wsl)
 			sdk_value=$selected_vulkan_path
 			add_to_wslenv VK_SDK_PATH/p
 			add_to_wslenv VULKAN_SDK/p
+			add_to_wslenv VK_ADD_LAYER_PATH/p
 			;;
-		windows) sdk_value=$(cygpath -w "$selected_vulkan_path") || return 1 ;;
+		windows)
+			sdk_value=$(cygpath -w "$selected_vulkan_path") || return 1
+			if [ -n "$layer_dir" ]
+			then
+				layer_dir=$(cygpath -w "$layer_dir") || return 1
+			fi
+			;;
 		*) sdk_value=$selected_vulkan_path ;;
 	esac
 	export VK_SDK_PATH="$sdk_value" VULKAN_SDK="$sdk_value"
+	if [ -n "$layer_dir" ]
+	then
+		export VK_ADD_LAYER_PATH="$layer_dir"
+	fi
 }
 
 server_count=8
