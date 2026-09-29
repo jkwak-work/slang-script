@@ -37,6 +37,18 @@ add_to_wslenv()
 	WSLENV="${WSLENV:+$WSLENV:}$variable"
 }
 
+prepend_path_entries()
+{
+	[ "$#" -gt 0 ] || return
+	local prefix
+	prefix=$(IFS=:; printf '%s' "$*")
+	export PATH="$prefix${PATH:+:$PATH}"
+	if [ "$platform" = wsl ]
+	then
+		add_to_wslenv PATH/lp
+	fi
+}
+
 log_elapsed_time()
 {
 	local status=$?
@@ -127,14 +139,8 @@ discover_windows_cuda()
 {
 	local cuda_root cuda_dir
 
-	if [ "$platform" = wsl ]
-	then
-		cuda_root='/mnt/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA'
-	else
-		cuda_root=$(cygpath -u "${ProgramFiles:-C:\\Program Files}") ||
-			return 1
-		cuda_root="$cuda_root/NVIDIA GPU Computing Toolkit/CUDA"
-	fi
+	cuda_root=$(sdk_unix_path "${ProgramFiles:-C:\\Program Files}") || return 1
+	cuda_root="$cuda_root/NVIDIA GPU Computing Toolkit/CUDA"
 
 	[ -d "$cuda_root" ] || return
 	while IFS= read -r -d '' cuda_dir
@@ -200,6 +206,7 @@ select_cuda()
 {
 	local index last_index
 
+	sort_cuda_installations
 	selected_cuda_version=
 	selected_cuda_path=
 	if [ -n "$requested_cuda_version" ]
@@ -240,7 +247,6 @@ select_cuda()
 configure_cuda_search_paths()
 {
 	local cuda_path_entries=()
-	local cuda_path_prefix
 
 	[ -n "$selected_cuda_path" ] || return
 
@@ -260,15 +266,158 @@ configure_cuda_search_paths()
 			cuda_path_entries+=("$selected_cuda_path/libnvvp")
 	fi
 
-	if [ "${#cuda_path_entries[@]}" -gt 0 ]
+	prepend_path_entries "${cuda_path_entries[@]}"
+}
+
+sdk_unix_path()
+{
+	case "$1" in
+		[A-Za-z]:\\*|[A-Za-z]:/*)
+			case "$platform" in
+				wsl) wslpath -u "$1" ;;
+				windows) cygpath -u "$1" ;;
+				*) return 1 ;;
+			esac
+			;;
+		*) printf '%s\n' "$1" ;;
+	esac
+}
+
+vulkan_sdk_root()
+{
+	local path
+	path=$(sdk_unix_path "$1") || return 1
+	if [ "$platform" = linux ]
 	then
-		cuda_path_prefix=$(IFS=:; echo "${cuda_path_entries[*]}")
-		export PATH="$cuda_path_prefix:$PATH"
-		if [ "$platform" = wsl ]
-		then
-			add_to_wslenv PATH/lp
-		fi
+		[ -f "$path/lib/$vulkan_sdk_marker" ] ||
+			[ -f "$path/lib64/$vulkan_sdk_marker" ] || return 1
+	else
+		[ -f "$path/Bin/$vulkan_sdk_marker" ] ||
+			[ -f "$path/bin/$vulkan_sdk_marker" ] || return 1
 	fi
+	(CDPATH= cd -- "$path" && pwd -P)
+}
+
+discover_vulkan_sdk()
+{
+	local variable entry root search_path path_source
+	local path_entries=()
+
+	# Prefer an explicit SDK setting, then the SDK already on PATH.
+	for variable in VULKAN_SDK VK_SDK_PATH
+	do
+		[ -n "${!variable:-}" ] || continue
+		root=$(vulkan_sdk_root "${!variable}") || {
+			log "Warning: $variable does not point to a Vulkan SDK: ${!variable}" >&2
+			continue
+		}
+		vulkan_paths+=("$root")
+		vulkan_sources+=("$variable")
+	done
+
+	if [ "$platform" = linux ]
+	then
+		search_path=${LD_LIBRARY_PATH:-}
+		path_source=LD_LIBRARY_PATH
+	else
+		search_path=$PATH
+		path_source=PATH
+	fi
+	IFS=: read -r -a path_entries <<< "$search_path"
+	for entry in "${path_entries[@]}"
+	do
+		[ -f "$entry/$vulkan_sdk_marker" ] || continue
+		root=$(vulkan_sdk_root "$(dirname -- "$entry")") || continue
+		vulkan_paths+=("$root")
+		vulkan_sources+=("$path_source")
+	done
+}
+
+select_vulkan_sdk()
+{
+	local index version_dir
+
+	selected_vulkan_version=
+	selected_vulkan_path=
+
+	if [ "${#vulkan_paths[@]}" -eq 0 ]
+	then
+		return
+	fi
+	selected_vulkan_path=${vulkan_paths[0]}
+	for index in "${!vulkan_paths[@]}"
+	do
+		if [ "${vulkan_sources[index]}" != PATH ] &&
+			[ "${vulkan_sources[index]}" != LD_LIBRARY_PATH ] &&
+			[ "${vulkan_paths[index]}" != "$selected_vulkan_path" ]
+		then
+			log "Warning: ${vulkan_sources[index]} points to ${vulkan_paths[index]}; using $selected_vulkan_path." >&2
+		fi
+	done
+
+	version_dir=${selected_vulkan_path##*/}
+	if ! [[ "$version_dir" =~ ^[0-9]+([.][0-9]+)*$ ]]
+	then
+		version_dir=${selected_vulkan_path%/*}
+		version_dir=${version_dir##*/}
+	fi
+	if [[ "$version_dir" =~ ^[0-9]+([.][0-9]+)*$ ]]
+	then
+		selected_vulkan_version=$version_dir
+	else
+		selected_vulkan_version=unknown
+	fi
+}
+
+configure_vulkan_search_paths()
+{
+	local entry sdk_dir sdk_value search_path
+	local path_entries=() kept_entries=()
+
+	[ -n "$selected_vulkan_path" ] || return
+
+	if [ "$platform" = linux ]
+	then
+		if [ -f "$selected_vulkan_path/lib/$vulkan_sdk_marker" ]
+		then
+			sdk_dir="$selected_vulkan_path/lib"
+		else
+			sdk_dir="$selected_vulkan_path/lib64"
+		fi
+		search_path=${LD_LIBRARY_PATH:-}
+	else
+		if [ -f "$selected_vulkan_path/Bin/$vulkan_sdk_marker" ]
+		then
+			sdk_dir="$selected_vulkan_path/Bin"
+		else
+			sdk_dir="$selected_vulkan_path/bin"
+		fi
+		search_path=$PATH
+	fi
+	IFS=: read -r -a path_entries <<< "$search_path"
+	for entry in "${path_entries[@]}"
+	do
+		[ -f "$entry/$vulkan_sdk_marker" ] || kept_entries+=("$entry")
+	done
+	search_path=$(IFS=:; printf '%s' "${kept_entries[*]}")
+	if [ "$platform" = linux ]
+	then
+		export LD_LIBRARY_PATH="$sdk_dir${search_path:+:$search_path}"
+	else
+		PATH=$search_path
+		prepend_path_entries "$sdk_dir"
+	fi
+
+	case "$platform" in
+		wsl)
+			sdk_value=$selected_vulkan_path
+			add_to_wslenv VK_SDK_PATH/p
+			add_to_wslenv VULKAN_SDK/p
+			;;
+		windows) sdk_value=$(cygpath -w "$selected_vulkan_path") || return 1 ;;
+		*) sdk_value=$selected_vulkan_path ;;
+	esac
+	export VK_SDK_PATH="$sdk_value" VULKAN_SDK="$sdk_value"
 }
 
 server_count=8
@@ -376,11 +525,18 @@ fi
 platform=$(detect_platform)
 cuda_versions=()
 cuda_paths=()
+vulkan_paths=()
+vulkan_sources=()
 case "$platform" in
-	windows|wsl) discover_windows_cuda ;;
-	linux) discover_linux_cuda ;;
+	windows|wsl)
+		discover_windows_cuda
+		vulkan_sdk_marker=VkLayer_khronos_validation.dll
+		;;
+	linux)
+		discover_linux_cuda
+		vulkan_sdk_marker=libVkLayer_khronos_validation.so
+		;;
 esac
-sort_cuda_installations
 select_cuda
 configure_cuda_search_paths
 
@@ -392,6 +548,16 @@ fi
 
 if [ "$validation" = true ]
 then
+	discover_vulkan_sdk
+	select_vulkan_sdk
+	if [ -z "$selected_vulkan_path" ]
+	then
+		log "Error: Vulkan validation requires an SDK with $vulkan_sdk_marker, but none was found." >&2
+		exit 1
+	fi
+	configure_vulkan_search_paths
+	log "Vulkan version: $selected_vulkan_version ($selected_vulkan_path)"
+
 	export SLANG_RUN_SPIRV_VALIDATION=1
 	export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
 	log "SPIRV and Vulkan validation enabled."

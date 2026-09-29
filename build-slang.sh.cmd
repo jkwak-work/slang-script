@@ -37,7 +37,7 @@ del /q "%vcvars_output%" >nul 2>&1
 if defined cuda_path call :configure_cuda
 if defined cuda_path if errorlevel 1 exit /b %errorlevel%
 
-cmake.exe --preset default --log-level=ERROR -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DSLANG_IGNORE_ABORT_MSG=ON
+cmake.exe --preset default --log-level=ERROR -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DSLANG_IGNORE_ABORT_MSG=ON -DSLANG_DISABLED_WARNING_IDS=88
 if errorlevel 1 exit /b %errorlevel%
 
 cmake.exe --build build --config %build_config%

@@ -263,7 +263,8 @@ if [ "$platform" = linux ]; then
 
     cmake --preset default --log-level=ERROR \
         -DCMAKE_COMPILE_WARNING_AS_ERROR=ON \
-        -DSLANG_IGNORE_ABORT_MSG=ON
+        -DSLANG_IGNORE_ABORT_MSG=ON \
+        -DSLANG_DISABLED_WARNING_IDS=88
     build_status=$?
     if [ "$build_status" -eq 0 ]; then
         cmake --build build --config "$build_config"
