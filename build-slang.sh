@@ -276,10 +276,20 @@ else
     if [ -n "$selected_cuda_path" ]; then
         cuda_path_windows=$(to_windows_path "$selected_cuda_path") || exit 1
     fi
-    if [ "$platform" = wsl ]; then
-        cache_dir_windows=${SCCACHE_DIR_WINDOWS:-'E:\sbf\slang-cache'}
+    cache_dir_windows=${SCCACHE_DIR_WINDOWS:-}
+    if [ -z "$cache_dir_windows" ]; then
+        cache_dir="$PWD/../sccache"
+    elif [ "$platform" = wsl ]; then
+        cache_dir=$(wslpath -u "$cache_dir_windows") || exit 1
     else
-        cache_dir_windows=${SCCACHE_DIR_WINDOWS:-}
+        cache_dir=$(cygpath -u "$cache_dir_windows") || exit 1
+    fi
+    if [ ! -d "$cache_dir" ]; then
+        log "Creating sccache directory: $cache_dir"
+        mkdir -p -- "$cache_dir" || exit 1
+    fi
+    if [ -z "$cache_dir_windows" ]; then
+        cache_dir_windows=$(to_windows_path "$cache_dir") || exit 1
     fi
 
     cmd.exe /d /c "$cmd_script" \

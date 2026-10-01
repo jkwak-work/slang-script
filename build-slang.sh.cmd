@@ -8,9 +8,8 @@ if not defined sccache_dir (
     set "sccache_dir=%LOCALAPPDATA%\sccache"
 )
 
-if not exist "%sccache_dir%" mkdir "%sccache_dir%" >nul 2>&1
 if not exist "%sccache_dir%" (
-    echo Failed to create sccache directory: %sccache_dir% 1>&2
+    echo sccache directory does not exist: %sccache_dir% 1>&2
     exit /b 1
 )
 
